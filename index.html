@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tetoMIDI · converter</title>
+<link rel="icon" href="/favicon.png" type="image/png">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { background: #000; }
+  body { margin: 0; color: #f2f2f2; font: 15px/1.5 -apple-system, system-ui, "Segoe UI", sans-serif; }
+  .wrap { max-width: 440px; margin: 0 auto; padding: 16px 20px 48px; }
+  header { display: flex; align-items: center; }
+  .top-row { display: flex; justify-content: flex-end; }
+  .discord-top {
+    width: 44px; height: 44px; border-radius: 50%; background: #fff; display: grid; place-items: center;
+    text-decoration: none;
+  }
+  .discord-top img { width: 24px; height: 24px; }
+  .brand { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 22px 0 26px; }
+  .brand img { width: 72px; height: 72px; border-radius: 16px; }
+  .brand span { font-weight: 700; letter-spacing: .6px; font-size: 16px; }
+  .file {
+    display: flex; align-items: center; gap: 10px; background: #0b0b0b; border: 1px solid #222;
+    border-radius: 12px; padding: 9px 12px; font-size: 14px; color: #bbb;
+  }
+  .pill {
+    background: #1c1c1e; border: 1px solid #2a2a2d; color: #fff; border-radius: 999px;
+    padding: 4px 12px; font-size: 13px; cursor: pointer; white-space: nowrap;
+  }
+  .pill:hover { background: #2a2a2d; }
+  input[type=file] { display: none; }
+  .opts { margin: 16px 0 0; }
+  .opt { display: flex; align-items: center; gap: 10px; padding: 7px 2px; cursor: pointer; user-select: none; }
+  .opt input { appearance: none; width: 18px; height: 18px; margin: 0; border: 1px solid #555; border-radius: 4px; background: #000; display: grid; place-items: center; }
+  .opt input:checked { background: #fff; border-color: #fff; }
+  .opt input:checked::after {
+    content: ""; width: 5px; height: 9px; border: solid #000; border-width: 0 2px 2px 0;
+    transform: rotate(45deg) translate(-1px, -1px);
+  }
+  .q {
+    width: 16px; height: 16px; border: 1px solid #555; border-radius: 50%; color: #aaa;
+    font-size: 11px; display: inline-grid; place-items: center; cursor: pointer; flex: 0 0 auto;
+  }
+  .help { font-size: 12px; color: #888; margin: 0 0 6px 28px; display: none; }
+  .help.show { display: block; }
+  .fields { display: flex; gap: 14px; align-items: flex-end; margin: 14px 0 0; flex-wrap: wrap; }
+  .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #888; }
+  input[type=number] {
+    background: #0b0b0b; border: 1px solid #222; color: #eee; border-radius: 10px;
+    padding: 8px 10px; width: 88px; font-size: 14px;
+  }
+  .note { font-size: 12px; color: #777; text-align: center; margin: 18px 0 14px; }
+  .go {
+    width: 100%; padding: 15px; border-radius: 14px; border: 0; background: #1c1c1e; color: #fff;
+    font-weight: 600; font-size: 16px; cursor: pointer;
+  }
+  .go:hover { background: #2a2a2d; }
+  .go:disabled { opacity: .5; cursor: default; }
+  textarea {
+    width: 100%; min-height: 260px; margin-top: 16px; background: #0b0b0b; border: 1px solid #222;
+    border-radius: 14px; padding: 12px; color: #e8e8e8; resize: vertical;
+    font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+  }
+  .row { display: flex; gap: 8px; margin-top: 10px; }
+  .btn {
+    flex: 1; padding: 11px; border-radius: 12px; border: 1px solid #222; background: #0b0b0b;
+    color: #eee; font-size: 14px; cursor: pointer;
+  }
+  .btn:hover { background: #151515; }
+  #status { font-size: 12px; color: #888; min-height: 18px; margin-top: 10px; text-align: center; }
+  #gistLink { font-size: 12px; word-break: break-all; margin-top: 8px; color: #9aa; }
+  #gistLink a { color: #cfe; }
+  #intro {
+    position: fixed; inset: 0; background: #000; z-index: 50;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+    animation: introOut .5s ease 2.4s forwards; cursor: pointer;
+  }
+  #intro img { width: 96px; height: 96px; border-radius: 22px; opacity: 0; transform: scale(.85);
+    animation: logoIn .8s cubic-bezier(.2,.8,.2,1) .15s forwards; }
+  #intro .title { font-size: 22px; font-weight: 700; letter-spacing: 1px; color: #fff; opacity: 0;
+    animation: titleIn .7s ease 1s forwards; }
+  @keyframes logoIn { to { opacity: 1; transform: scale(1); } }
+  @keyframes titleIn { to { opacity: 1; } }
+  @keyframes introOut { to { opacity: 0; visibility: hidden; } }
+  @media (prefers-reduced-motion: reduce) {
+    #intro, #intro img, #intro .title { animation-duration: .01s !important; animation-delay: 0s !important; }
+  }
+</style>
+</head>
+<body>
+<div id="intro" aria-hidden="true">
+  <img src="/logo.png" alt="">
+  <div class="title">tetoMIDI lua</div>
+</div>
+<div class="wrap">
+  <div class="top-row">
+    <a class="discord-top" href="https://discord.gg/peaqm6uqgB" target="_blank" rel="noopener" title="join our discord" aria-label="join our discord">
+      <img src="/discord.png" alt="Discord">
+    </a>
+  </div>
+
+  <div class="brand">
+    <img src="/logo.png" alt="tetoMIDI logo">
+    <span>tetoMIDI</span>
+  </div>
+
+  <div class="file">
+    <label class="pill">choose file<input id="midiFile" type="file" accept=".mid,.midi"></label>
+    <span id="fileName">no file selected</span>
+  </div>
+
+  <div class="opts">
+    <label class="opt"><input type="checkbox" id="cbAll"> check/uncheck all</label>
+    <label class="opt"><input type="checkbox" id="cb88"> 88 key <span class="q" data-help="hb88">?</span></label>
+    <div class="help" id="hb88">on: use all 88 keys (extended keys use Ctrl). off: use only the 61 keys; notes outside the range are skipped.</div>
+    <label class="opt"><input type="checkbox" id="cbDetect" checked> detect bpm <span class="q" data-help="hbDetect">?</span></label>
+    <div class="help" id="hbDetect">on: read the tempo from the MIDI file. off: use the bpm value entered below.</div>
+    <label class="opt"><input type="checkbox" id="cbNoteLen"> use note lengths <span class="q" data-help="hbLen">?</span></label>
+    <div class="help" id="hbLen">on: keep each note's real length. off: every note is pressed for the same short time.</div>
+    <label class="opt"><input type="checkbox" id="cbVel"> use note velocity <span class="q" data-help="hbVel">?</span></label>
+    <div class="help" id="hbVel">on: press the velocity key (Alt + key) before each note.</div>
+    <label class="opt"><input type="checkbox" id="cbSus"> use sustain pedal <span class="q" data-help="hbSus">?</span></label>
+    <div class="help" id="hbSus">on: convert the CC64 pedal into holding and releasing Space.</div>
+  </div>
+
+  <div class="fields">
+    <div class="field">tempo (bpm)
+      <input id="tempo" type="number" min="20" max="300" value="120">
+    </div>
+    <div class="field">transpose
+      <input id="transpose" type="number" min="-24" max="24" value="0">
+    </div>
+  </div>
+
+  <div class="note">tetoMIDI keymap · 61 / 88 keys · piano</div>
+
+  <button class="go" id="convert">let's go!</button>
+  <div id="status"></div>
+
+  <textarea id="output" placeholder="Converted output will appear here..."></textarea>
+  <div class="row">
+    <button class="btn" id="copy">copy script</button>
+    <button class="btn" id="share">convert lua</button>
+  </div>
+  <div id="gistLink"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const state = { midi: null };
+
+function readFlags() {
+  return {
+    k88: $("cb88").checked,
+    velocity: $("cbVel").checked,
+    sustain: $("cbSus").checked,
+    noteLength: $("cbNoteLen").checked
+  };
+}
+
+const LOADER = 'loadstring(game:HttpGet("https://gist.githack.com/linhbellmapmap208-design/0aa4be45d0eb0a1e12cc8896c03ca0dc/raw/custom_song.lua", true))()';
+const SHORT_NOTE = 0.12;          // tetoMIDI rollmodel.SHORT_NOTE (seconds) when note length is off
+const SUSTAIN_CUTOFF = 63;        // tetoMIDI piano.sustainCutoff
+const SHIFTED = /[!@$%^*(]/;      // symbols that need Shift (tetoMIDI dispatchers._SHIFTED_SYMBOLS)
+
+// Keymap from tetomidi/defaults_maps.py (PIANO_MAP), generated
+const PIANO_MAP = {
+ "88keyMap": {
+  "lowNotes": {
+   "21": "1",
+   "22": "2",
+   "23": "3",
+   "24": "4",
+   "25": "5",
+   "26": "6",
+   "27": "7",
+   "28": "8",
+   "29": "9",
+   "30": "0",
+   "31": "q",
+   "32": "w",
+   "33": "e",
+   "34": "r",
+   "35": "t"
+  },
+  "highNotes": {
+   "97": "y",
+   "98": "u",
+   "99": "i",
+   "100": "o",
+   "101": "p",
+   "102": "a",
+   "103": "s",
+   "104": "d",
+   "105": "f",
+   "106": "g",
+   "107": "h",
+   "108": "j"
+  }
+ },
+ "61keyMap": {
+  "36": "1",
+  "37": "!",
+  "38": "2",
+  "39": "@",
+  "40": "3",
+  "41": "4",
+  "42": "$",
+  "43": "5",
+  "44": "%",
+  "45": "6",
+  "46": "^",
+  "47": "7",
+  "48": "8",
+  "49": "*",
+  "50": "9",
+  "51": "(",
+  "52": "0",
+  "53": "q",
+  "54": "Q",
+  "55": "w",
+  "56": "W",
+  "57": "e",
+  "58": "E",
+  "59": "r",
+  "60": "t",
+  "61": "T",
+  "62": "y",
+  "63": "Y",
+  "64": "u",
+  "65": "i",
+  "66": "I",
+  "67": "o",
+  "68": "O",
+  "69": "p",
+  "70": "P",
+  "71": "a",
+  "72": "s",
+  "73": "S",
+  "74": "d",
+  "75": "D",
+  "76": "f",
+  "77": "g",
+  "78": "G",
+  "79": "h",
+  "80": "H",
+  "81": "j",
+  "82": "J",
+  "83": "k",
+  "84": "l",
+  "85": "L",
+  "86": "z",
+  "87": "Z",
+  "88": "x",
+  "89": "c",
+  "90": "C",
+  "91": "v",
+  "92": "V",
+  "93": "b",
+  "94": "B",
+  "95": "n",
+  "96": "m"
+ },
+ "velocityMap": {
+  "0": "1",
+  "4": "2",
+  "8": "3",
+  "12": "4",
+  "16": "5",
+  "20": "6",
+  "24": "7",
+  "28": "8",
+  "32": "9",
+  "36": "0",
+  "40": "q",
+  "44": "w",
+  "48": "e",
+  "52": "r",
+  "56": "t",
+  "60": "y",
+  "64": "u",
+  "68": "i",
+  "72": "o",
+  "76": "p",
+  "80": "a",
+  "84": "s",
+  "88": "d",
+  "92": "f",
+  "96": "g",
+  "100": "h",
+  "104": "j",
+  "108": "k",
+  "112": "l",
+  "116": "z",
+  "120": "x",
+  "124": "c"
+ }
+};
+
+// ---------- MIDI parser ----------
+function parseMidi(buf) {
+  const dv = new DataView(buf);
+  const str = (o, n) => String.fromCharCode(...new Uint8Array(buf, o, n));
+  if (str(0, 4) !== "MThd") throw new Error("not a MIDI file");
+  const hlen = dv.getUint32(4);
+  const ntr = dv.getUint16(10);
+  const div = dv.getUint16(12);
+  if (div & 0x8000) throw new Error("SMPTE timing is not supported");
+  let p = 8 + hlen;
+  const events = [];
+  for (let t = 0; t < ntr && p + 8 <= buf.byteLength; t++) {
+    if (str(p, 4) !== "MTrk") break;
+    const len = dv.getUint32(p + 4);
+    let q = p + 8;
+    const end = Math.min(q + len, buf.byteLength);
+    let tick = 0, running = 0;
+    const vlq = () => { let v = 0, b; do { b = dv.getUint8(q++); v = v * 128 + (b & 0x7f); } while (b & 0x80); return v; };
+    while (q < end) {
+      tick += vlq();
+      let st = dv.getUint8(q);
+      if (st & 0x80) { q++; if (st < 0xF0) running = st; } else { st = running; }
+      if (st === 0xFF) {
+        const type = dv.getUint8(q++);
+        const l = vlq();
+        if (type === 0x51 && l === 3) {
+          const us = (dv.getUint8(q) << 16) | (dv.getUint8(q + 1) << 8) | dv.getUint8(q + 2);
+          events.push({ tick, type: "tempo", us });
+        }
+        q += l;
+      } else if (st === 0xF0 || st === 0xF7) {
+        q += vlq();
+      } else {
+        const kind = st & 0xF0;
+        if (kind === 0xC0 || kind === 0xD0) { q += 1; }
+        else {
+          const a = dv.getUint8(q++), b = dv.getUint8(q++);
+          if (kind === 0x90 && b > 0) events.push({ tick, type: "on", note: a, vel: b });
+          else if (kind === 0x80 || kind === 0x90) events.push({ tick, type: "off", note: a });
+          else if (kind === 0xB0 && a === 64) events.push({ tick, type: "pedal", val: b });
+        }
+      }
+    }
+    p = end;
+  }
+  return { div, events };
+}
+
+// tick -> seconds using the file's tempo map
+function toSeconds(events, div) {
+  const sorted = events.slice().sort((a, b) => a.tick - b.tick);
+  let us = 500000, firstUs = null, sec = 0, last = 0;
+  const out = [];
+  for (const e of sorted) {
+    sec += (e.tick - last) * us / 1e6 / div;
+    last = e.tick;
+    if (e.type === "tempo") { if (firstUs === null) firstUs = e.us; us = e.us; }
+    else out.push({ ...e, t: sec });
+  }
+  return { events: out, origBpm: Math.round(60e6 / (firstUs || 500000)) };
+}
+
+// ---------- keymap (same as tetoMIDI engine/dispatchers.py) ----------
+function pianoKeyFor(note, use88) {
+  const s = String(note);
+  const letter = PIANO_MAP["61keyMap"];
+  if (s in letter) return letter[s];
+  if (use88) {
+    if (s in PIANO_MAP["88keyMap"]["lowNotes"]) return PIANO_MAP["88keyMap"]["lowNotes"][s];
+    if (s in PIANO_MAP["88keyMap"]["highNotes"]) return PIANO_MAP["88keyMap"]["highNotes"][s];
+  }
+  return null;
+}
+
+// Key + modifier for one note, same order as PianoDispatcher.note_on
+function keyAndMod(note, key) {
+  if (note >= 36 && note <= 96) {
+    if (SHIFTED.test(key)) {
+      const base = PIANO_MAP["61keyMap"][String(note - 1)] ?? key.toLowerCase();
+      return { k: base, m: "shift" };
+    }
+    if (key !== key.toLowerCase()) return { k: key.toLowerCase(), m: "shift" };
+    return { k: key, m: "" };
+  }
+  return { k: key.toLowerCase(), m: "ctrl" };   // extended 88-key range uses the CTRL layer
+}
+
+// Exact port of tetoMIDI's velocity threshold search
+function velocityKey(velocity) {
+  const vmap = PIANO_MAP["velocityMap"];
+  const th = Object.keys(vmap).map(Number).sort((a, b) => a - b);
+  let lo = 0, hi = th.length - 1, idx = 0;
+  while (lo <= hi) {
+    idx = Math.floor((lo + hi) / 2);
+    if (idx === 0 || idx === th.length - 1) break;
+    if (th[idx] < velocity) lo = idx + 1; else hi = idx - 1;
+  }
+  return vmap[String(th[idx])];
+}
+
+const luaStr = s => '"' + String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+
+// ---------- converter ----------
+function convert() {
+  if (!state.midi) { setStatus("no MIDI file loaded"); return null; }
+  const f = readFlags();
+  const tempo = ($("cbDetect").checked && state.midi) ? state.midi.origBpm : Math.max(20, Math.min(300, parseFloat($("tempo").value) || 80));
+  const transpose = Math.max(-24, Math.min(24, parseInt($("transpose").value, 10) || 0));
+  const scale = state.midi.origBpm / tempo;
+
+  // pair note on/off events (FIFO, like tetoMIDI)
+  const open = {}, notes = [], pedals = [];
+  let dropped = 0;
+  for (const e of state.midi.events) {
+    if (e.type === "on") (open[e.note] = open[e.note] || []).push(e);
+    else if (e.type === "off") {
+      const q = open[e.note];
+      if (q && q.length) {
+        const on = q.shift();
+        notes.push({ t: on.t, n: on.note, v: on.vel, d: Math.max(0, e.t - on.t) });
+      }
+    } else if (e.type === "pedal") {
+      pedals.push({ t: e.t, val: e.val });
+    }
+  }
+  for (const k in open) for (const on of open[k]) notes.push({ t: on.t, n: on.note, v: on.vel, d: 0.1 });
+
+  // apply transpose, look up keys, drop notes outside the keymap
+  const song = [];
+  for (const n of notes) {
+    const note = n.n + transpose;
+    const key = pianoKeyFor(note, f.k88);
+    if (key === null) { dropped++; continue; }
+    const km = keyAndMod(note, key);
+    const entry = { t: n.t * scale, n: note, k: km.k, m: km.m, d: f.noteLength ? n.d * scale : SHORT_NOTE };
+    if (f.velocity) entry.vk = velocityKey(n.v);
+    song.push(entry);
+  }
+
+  // sustain pedal: only write on threshold crossings (like PianoDispatcher.control)
+  if (f.sustain) {
+    let active = false;
+    for (const p of pedals.sort((a, b) => a.t - b.t)) {
+      if (!active && p.val > SUSTAIN_CUTOFF) { active = true; song.push({ t: p.t * scale, sustain: "down" }); }
+      else if (active && p.val < SUSTAIN_CUTOFF) { active = false; song.push({ t: p.t * scale, sustain: "up" }); }
+    }
+  }
+  song.sort((a, b) => a.t - b.t);
+
+  const onoff = b => b ? "ON" : "OFF";
+  const L = [];
+  L.push("--TETOMIDI-LUA");
+  L.push("--88key--" + onoff(f.k88));
+  L.push("--VELOCITY--" + onoff(f.velocity));
+  L.push("--SUSTIAN--" + onoff(f.sustain));
+  L.push("--SHORTNOTE--" + onoff(!f.noteLength));
+  L.push("");
+  L.push("tempo=" + tempo);
+  L.push("transpose=" + transpose + "   -- already added to n of each note");
+  L.push("SHORT_NOTE=" + SHORT_NOTE);
+  L.push("SUSTAIN_CUTOFF=" + SUSTAIN_CUTOFF);
+  L.push("");
+  L.push("-- piano keymap, 61 keys (tetoMIDI defaults_maps.PIANO_MAP)");
+  L.push("KEYMAP61 = {");
+  for (const k of Object.keys(PIANO_MAP["61keyMap"]).map(Number).sort((a, b) => a - b))
+    L.push(`  [${k}] = ${luaStr(PIANO_MAP["61keyMap"][k])},`);
+  L.push("}");
+  if (f.k88) {
+    for (const [name, tbl] of [["KEYMAP88_LOW", "lowNotes"], ["KEYMAP88_HIGH", "highNotes"]]) {
+      L.push(name + " = {");
+      for (const k of Object.keys(PIANO_MAP["88keyMap"][tbl]).map(Number).sort((a, b) => a - b))
+        L.push(`  [${k}] = ${luaStr(PIANO_MAP["88keyMap"][tbl][k])},`);
+      L.push("}");
+    }
+  }
+  if (f.velocity) {
+    L.push("VELOCITY_MAP = {");
+    for (const k of Object.keys(PIANO_MAP["velocityMap"]).map(Number).sort((a, b) => a - b))
+      L.push(`  {${k}, ${luaStr(PIANO_MAP["velocityMap"][k])}},`);
+    L.push("}");
+  }
+  L.push("");
+  L.push("-- SONG: t = seconds, n = MIDI note (transposed), k = key, m = modifier (shift/ctrl/empty), d = hold length");
+  L.push("SONG = {");
+  for (const s of song) {
+    if (s.sustain) L.push(`  {t=${s.t.toFixed(3)}, sustain=${luaStr(s.sustain)}},`);
+    else {
+      const vk = s.vk !== undefined ? `, vk=${luaStr(s.vk)}` : "";
+      L.push(`  {t=${s.t.toFixed(3)}, n=${s.n}, k=${luaStr(s.k)}, m=${luaStr(s.m)}, d=${s.d.toFixed(3)}${vk}},`);
+    }
+  }
+  L.push("}");
+  L.push("");
+  L.push(LOADER);
+  setStatus(`converted: ${song.length} entries${dropped ? `, ${dropped} notes outside the keymap were dropped` : ""}`);
+  return L.join("\n");
+}
+
+function setStatus(msg) { $("status").textContent = msg; }
+
+// ---------- intro ----------
+(() => {
+  const intro = $("intro");
+  const hide = () => intro.remove();
+  intro.addEventListener("click", hide);
+  setTimeout(hide, 3000);
+})();
+
+// ---------- interface ----------
+$("midiFile").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  $("fileName").textContent = file.name;
+  try {
+    const parsed = parseMidi(await file.arrayBuffer());
+    const { events, origBpm } = toSeconds(parsed.events, parsed.div);
+    state.midi = { events, origBpm };
+    if ($("cbDetect").checked) $("tempo").value = origBpm;
+    setStatus(`loaded: source tempo ${origBpm} bpm`);
+  } catch (err) {
+    state.midi = null;
+    setStatus("error: " + err.message);
+  }
+});
+
+
+const OPT_IDS = ["cb88", "cbDetect", "cbNoteLen", "cbVel", "cbSus"];
+$("cbAll").addEventListener("change", e => {
+  OPT_IDS.forEach(id => $(id).checked = e.target.checked);
+});
+OPT_IDS.forEach(id => $(id).addEventListener("change", () => {
+  $("cbAll").checked = OPT_IDS.every(x => $(x).checked);
+}));
+
+document.querySelectorAll("[data-help]").forEach(q => {
+  q.addEventListener("click", e => {
+    e.preventDefault();
+    $(q.dataset.help).classList.toggle("show");
+  });
+});
+
+$("convert").addEventListener("click", () => {
+  const script = convert();
+  if (script === null) return;
+  $("output").value = script;
+  $("gistLink").textContent = "";
+});
+
+async function createShare(script) {
+  const res = await fetch("/api/gist", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content: script })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || ("error " + res.status));
+  return data;
+}
+
+$("share").addEventListener("click", async () => {
+  const btn = $("share");
+  const script = $("output").value || convert();
+  if (!script) return;
+  $("output").value = script;
+  btn.disabled = true;
+  $("gistLink").textContent = "";
+  setStatus("creating gist...");
+  try {
+    const data = await createShare(script);
+    $("gistLink").innerHTML = `gist: <a href="${data.html_url}" target="_blank" rel="noopener">${data.html_url}</a><br>raw: ${data.raw_url}`;
+    setStatus("done. gist created");
+  } catch (err) {
+    setStatus("error: " + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("copy").addEventListener("click", async () => {
+  const text = $("output").value;
+  if (!text) return setStatus("nothing to copy yet");
+  try { await navigator.clipboard.writeText(text); setStatus("script copied"); }
+  catch { $("output").select(); setStatus("could not copy automatically, copy it manually"); }
+});
+</script>
+</body>
+</html>

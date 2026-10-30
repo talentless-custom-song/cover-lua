@@ -1,0 +1,5 @@
+{
+  "name": "tetomidi-web",
+  "private": true,
+  "engines": { "node": ">=18" }
+}
