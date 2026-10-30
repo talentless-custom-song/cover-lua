@@ -451,6 +451,7 @@ function convert() {
   // cùng thời điểm: pedal bật phải đứng trước nốt để nốt đó được giữ
   song.sort((a, b) => (a.t - b.t) || ((b.sustain ? 1 : 0) - (a.sustain ? 1 : 0)));
 
+  state.last = { tempo, transpose, f };
   const onoff = b => b ? "ON" : "OFF";
   const L = [];
   L.push("--TETOMIDI-LUA");
@@ -561,6 +562,27 @@ async function createShare(script) {
   return data;
 }
 
+// Script ngắn: header TETOMIDI-LUA, tempo, transpose, rồi loadstring tới gist vừa tạo
+function buildShortScript(rawUrl) {
+  const { tempo, transpose, f } = state.last;
+  const onoff = b => b ? "ON" : "OFF";
+  return [
+    "--TETOMIDI-LUA--",
+    `--88key--${onoff(f.k88)}`,
+    `--VELOCITY--${onoff(f.velocity)}`,
+    `--SUSTIAN--${onoff(f.sustain)}`,
+    `--SHORTNOTE--${onoff(!f.noteLength)}`,
+    "",
+    `tempo=${tempo}`,
+    `transpose=${transpose}   -- already added to n of each note`,
+    `SHORT_NOTE=${SHORT_NOTE}`,
+    `SUSTAIN_CUTOFF=${SUSTAIN_CUTOFF}`,
+    "",
+    `loadstring(game:HttpGet("${rawUrl}", true))()`,
+    ""
+  ].join("\n");
+}
+
 $("share").addEventListener("click", async () => {
   const btn = $("share");
   const script = convert();   // luôn converter lại để gist chứa bài hát đầy đủ
@@ -571,8 +593,8 @@ $("share").addEventListener("click", async () => {
   setStatus("creating gist...");
   try {
     const data = await createShare(script);
-    $("output").value = script;
-    $("gistLink").innerHTML = `gist: <a href="${data.html_url}" target="_blank" rel="noopener">${data.html_url}</a><br>raw: ${data.raw_url}`;
+    $("output").value = buildShortScript(data.raw_url);
+    $("gistLink").innerHTML = `gist: <a href="${data.html_url}" target="_blank" rel="noopener">${data.html_url}</a>`;
     setStatus("done. gist created");
   } catch (err) {
     setStatus("error: " + err.message);
