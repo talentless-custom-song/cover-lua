@@ -563,7 +563,7 @@ async function createShare(script) {
 
 $("share").addEventListener("click", async () => {
   const btn = $("share");
-  const script = $("output").value || convert();
+  const script = convert();   // luôn converter lại để gist chứa bài hát đầy đủ
   if (!script) return;
   $("output").value = script;
   btn.disabled = true;
@@ -571,6 +571,7 @@ $("share").addEventListener("click", async () => {
   setStatus("creating gist...");
   try {
     const data = await createShare(script);
+    $("output").value = script;
     $("gistLink").innerHTML = `gist: <a href="${data.html_url}" target="_blank" rel="noopener">${data.html_url}</a><br>raw: ${data.raw_url}`;
     setStatus("done. gist created");
   } catch (err) {
