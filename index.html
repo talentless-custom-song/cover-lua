@@ -14,8 +14,8 @@
   header { display: flex; align-items: center; }
   .top-row { display: flex; justify-content: flex-end; }
   .discord-top {
-    width: 44px; height: 44px; border-radius: 50%; background: #fff; display: grid; place-items: center;
-    text-decoration: none;
+    width: 44px; height: 44px; border-radius: 50%; background: #111; border: 1px solid #333;
+    display: grid; place-items: center; text-decoration: none;
   }
   .discord-top img { width: 24px; height: 24px; }
   .brand { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 22px 0 26px; }
@@ -42,6 +42,7 @@
   .q {
     width: 16px; height: 16px; border: 1px solid #555; border-radius: 50%; color: #aaa;
     font-size: 11px; display: inline-grid; place-items: center; cursor: pointer; flex: 0 0 auto;
+    margin-left: 6px;
   }
   .help { font-size: 12px; color: #888; margin: 0 0 6px 28px; display: none; }
   .help.show { display: block; }
@@ -336,8 +337,9 @@ function parseMidi(buf) {
         if (kind === 0xC0 || kind === 0xD0) { q += 1; }
         else {
           const a = dv.getUint8(q++), b = dv.getUint8(q++);
-          if (kind === 0x90 && b > 0) events.push({ tick, type: "on", note: a, vel: b });
-          else if (kind === 0x80 || kind === 0x90) events.push({ tick, type: "off", note: a });
+          const isDrum = (st & 0x0F) === 9;   // channel 10: bỏ qua như tetoMIDI (skipPercussion)
+          if (kind === 0x90 && b > 0) { if (!isDrum) events.push({ tick, type: "on", note: a, vel: b }); }
+          else if (kind === 0x80 || kind === 0x90) { if (!isDrum) events.push({ tick, type: "off", note: a }); }
           else if (kind === 0xB0 && a === 64) events.push({ tick, type: "pedal", val: b });
         }
       }
@@ -446,7 +448,8 @@ function convert() {
       else if (active && p.val < SUSTAIN_CUTOFF) { active = false; song.push({ t: p.t * scale, sustain: "up" }); }
     }
   }
-  song.sort((a, b) => a.t - b.t);
+  // cùng thời điểm: pedal bật phải đứng trước nốt để nốt đó được giữ
+  song.sort((a, b) => (a.t - b.t) || ((b.sustain ? 1 : 0) - (a.sustain ? 1 : 0)));
 
   const onoff = b => b ? "ON" : "OFF";
   const L = [];
