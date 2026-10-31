@@ -154,10 +154,18 @@ const state = { midi: null };
 
 // Player nhúng vào gist: chạy SONG bằng VirtualInputManager, dự phòng keypress()
 const PLAYER = `
--- ===== PLAYER =====
+-- ===== PLAYER + OWN UI =====
+-- This script draws its own UI. It is independent of the tetoMIDI main UI.
 local START_DELAY = 3
-_G.TETOMIDI_STOP = false
+local SONG_NAME = "custom song"
+local UIS = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
 
+_G.TETOMIDI_STOP = false
+local state = {playing = true, finished = false, rate = 1, seek = nil, pos = 0, dur = 0}
+
+-- ---------- key sending (VirtualInputManager, fallback keypress) ----------
 local KEY_ENUM = {["0"]="Zero",["1"]="One",["2"]="Two",["3"]="Three",["4"]="Four",["5"]="Five",["6"]="Six",["7"]="Seven",["8"]="Eight",["9"]="Nine",shift="LeftShift",ctrl="LeftControl",alt="LeftAlt",space="Space"}
 local KEY_VK = {shift=0x10, ctrl=0x11, alt=0x12, space=0x20}
 
@@ -188,7 +196,13 @@ local function send(name, down)
     end
 end
 
--- Dựng danh sách sự kiện (thời điểm, hàm) từ SONG
+local function releaseAll()
+    pcall(function()
+        send("space", false); send("shift", false); send("ctrl", false); send("alt", false)
+    end)
+end
+
+-- ---------- event list from SONG ----------
 local events = {}
 local function add(t, fn)
     events[#events + 1] = {t = t, fn = fn, i = #events + 1}
@@ -219,18 +233,291 @@ table.sort(events, function(a, b)
     return a.i < b.i
 end)
 
-task.wait(START_DELAY)
-local t0 = os.clock()
-for _, ev in ipairs(events) do
-    if _G.TETOMIDI_STOP then break end
-    local wait = ev.t - (os.clock() - t0)
-    if wait > 0 then task.wait(wait) end
-    pcall(ev.fn)
+local DUR = (#events > 0) and events[#events].t or 0
+state.dur = DUR
+
+-- ---------- UI helpers ----------
+local WHITE = Color3.fromRGB(255, 255, 255)
+local MUTED = Color3.fromRGB(190, 190, 190)
+
+local function corner(obj, r)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, r)
+    c.Parent = obj
+    return c
 end
 
--- nhả hết phím phụ và pedal phòng khi dừng giữa chừng
-pcall(function()
-    send("space", false); send("shift", false); send("ctrl", false); send("alt", false)
+local function glass(parent, size, pos, radius, alpha)
+    local f = Instance.new("Frame")
+    f.Size = size
+    f.Position = pos
+    f.BackgroundColor3 = Color3.fromRGB(235, 240, 255)
+    f.BackgroundTransparency = alpha or 0.84
+    f.BorderSizePixel = 0
+    f.Parent = parent
+    corner(f, radius)
+    local st = Instance.new("UIStroke")
+    st.Color = WHITE
+    st.Thickness = 1.2
+    st.Transparency = 0.55
+    st.Parent = f
+    local g = Instance.new("UIGradient")
+    g.Rotation = 90
+    g.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(1, 0.7)})
+    g.Parent = f
+    return f
+end
+
+local function label(parent, text, size, pos, font, textSize, color, align)
+    local l = Instance.new("TextLabel")
+    l.Size = size
+    l.Position = pos
+    l.BackgroundTransparency = 1
+    l.Text = text
+    l.TextColor3 = color or WHITE
+    l.Font = font or Enum.Font.GothamMedium
+    l.TextSize = textSize or 12
+    l.TextXAlignment = align or Enum.TextXAlignment.Left
+    l.TextTruncate = Enum.TextTruncate.AtEnd
+    l.Parent = parent
+    return l
+end
+
+local function button(parent, text, size, pos, onClick)
+    local holder = glass(parent, size, pos, 10, 0.8)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, 0, 1, 0)
+    b.BackgroundTransparency = 1
+    b.Text = text
+    b.TextColor3 = WHITE
+    b.Font = Enum.Font.GothamMedium
+    b.TextSize = 12
+    b.AutoButtonColor = false
+    b.Parent = holder
+    b.MouseButton1Click:Connect(onClick)
+    return holder
+end
+
+-- ---------- own UI (separate ScreenGui) ----------
+local screen = Instance.new("ScreenGui")
+screen.Name = "TetoMIDI_Song"
+screen.ResetOnSpawn = false
+screen.IgnoreGuiInset = true
+screen.DisplayOrder = 200
+if not pcall(function() screen.Parent = CoreGui end) or not screen.Parent then
+    screen.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+end
+
+local panel = glass(screen, UDim2.new(0, 300, 0, 280), UDim2.new(1, -16, 0, 16), 18, 0.8)
+panel.AnchorPoint = Vector2.new(1, 0)
+
+local reopen
+reopen = button(screen, "show ui", UDim2.new(0, 84, 0, 28), UDim2.new(1, -16, 0, 16), function()
+    panel.Visible = true
+    reopen.Visible = false
+end)
+reopen.AnchorPoint = Vector2.new(1, 0)
+reopen.Visible = false
+
+label(panel, SONG_NAME, UDim2.new(1, -56, 0, 22), UDim2.new(0, 14, 0, 10), Enum.Font.GothamBold, 14, WHITE)
+button(panel, "x", UDim2.new(0, 28, 0, 26), UDim2.new(1, -42, 0, 8), function()
+    panel.Visible = false
+    reopen.Visible = true
+end)
+
+-- progress bar: click or drag to seek
+local track = Instance.new("Frame")
+track.Size = UDim2.new(1, -28, 0, 6)
+track.Position = UDim2.new(0, 14, 0, 44)
+track.BackgroundColor3 = WHITE
+track.BackgroundTransparency = 0.8
+track.BorderSizePixel = 0
+track.Parent = panel
+corner(track, 3)
+
+local fill = Instance.new("Frame")
+fill.Size = UDim2.new(0, 0, 1, 0)
+fill.BackgroundColor3 = WHITE
+fill.BorderSizePixel = 0
+fill.Parent = track
+corner(fill, 3)
+
+local hit = Instance.new("TextButton")
+hit.Size = UDim2.new(1, 0, 0, 24)
+hit.Position = UDim2.new(0, 0, 0, -9)
+hit.BackgroundTransparency = 1
+hit.Text = ""
+hit.Parent = track
+
+local seeking = false
+local function seekFromX(x)
+    local frac = math.clamp((x - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X), 0, 1)
+    if state.dur > 0 then state.seek = frac * state.dur end
+    fill.Size = UDim2.new(frac, 0, 1, 0)
+end
+hit.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        seeking = true
+        seekFromX(input.Position.X)
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if seeking and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        seekFromX(input.Position.X)
+    end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        seeking = false
+    end
+end)
+
+local timeLbl = label(panel, "0:00 / 0:00", UDim2.new(1, -28, 0, 16), UDim2.new(0, 14, 0, 54), Enum.Font.Gotham, 11, MUTED)
+
+-- tempo: -/+ step 0.05, range 0.25x to 3x
+local rateLbl = label(panel, "1.00x", UDim2.new(0, 90, 0, 26), UDim2.new(0.5, -45, 0, 78), Enum.Font.GothamBold, 13, WHITE, Enum.TextXAlignment.Center)
+
+local function setRate(r)
+    r = math.clamp(math.floor(r * 20 + 0.5) / 20, 0.25, 3)
+    state.rate = r
+    rateLbl.Text = string.format("%.2fx", r)
+end
+button(panel, "-", UDim2.new(0, 40, 0, 26), UDim2.new(0, 14, 0, 78), function() setRate(state.rate - 0.05) end)
+button(panel, "+", UDim2.new(0, 40, 0, 26), UDim2.new(1, -54, 0, 78), function() setRate(state.rate + 0.05) end)
+
+-- console
+local console = Instance.new("ScrollingFrame")
+console.Name = "Console"
+console.Size = UDim2.new(1, -28, 1, -158)
+console.Position = UDim2.new(0, 14, 0, 150)
+console.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+console.BackgroundTransparency = 0.5
+console.BorderSizePixel = 0
+console.ScrollBarThickness = 3
+console.AutomaticCanvasSize = Enum.AutomaticSize.Y
+console.CanvasSize = UDim2.new(0, 0, 0, 0)
+console.Parent = panel
+corner(console, 10)
+
+local consoleLayout = Instance.new("UIListLayout")
+consoleLayout.SortOrder = Enum.SortOrder.LayoutOrder
+consoleLayout.Parent = console
+
+local logCount = 0
+local function log(msg)
+    logCount = logCount + 1
+    local l = Instance.new("TextLabel")
+    l.Size = UDim2.new(1, -10, 0, 0)
+    l.AutomaticSize = Enum.AutomaticSize.Y
+    l.BackgroundTransparency = 1
+    l.Text = "> " .. tostring(msg)
+    l.TextColor3 = Color3.fromRGB(220, 220, 220)
+    l.Font = Enum.Font.Code
+    l.TextSize = 11
+    l.TextWrapped = true
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.LayoutOrder = logCount
+    l.Parent = console
+    if logCount > 80 then
+        for _, child in ipairs(console:GetChildren()) do
+            if child:IsA("TextLabel") and child.LayoutOrder <= logCount - 80 then child:Destroy() end
+        end
+    end
+    task.defer(function()
+        console.CanvasPosition = Vector2.new(0, math.max(0, console.AbsoluteCanvasSize.Y))
+    end)
+end
+
+-- stop = pause (keeps position), play = resume (from start if finished)
+local playBtn
+local function setPlayText()
+    if playBtn then playBtn:FindFirstChildOfClass("TextButton").Text = state.playing and "stop" or "play" end
+end
+
+playBtn = button(panel, "stop", UDim2.new(0.5, -21, 0, 28), UDim2.new(0, 14, 0, 112), function()
+    if state.playing then
+        state.playing = false
+        releaseAll()
+        log("stopped")
+    else
+        if state.finished then
+            state.seek = 0
+            state.finished = false
+        end
+        state.playing = true
+        log("playing")
+    end
+    setPlayText()
+end)
+button(panel, "to start", UDim2.new(0.5, -21, 0, 28), UDim2.new(0.5, 7, 0, 112), function()
+    state.seek = 0
+    log("to start")
+end)
+
+local function fmtTime(sec)
+    return string.format("%d:%02d", math.floor(sec / 60), math.floor(sec % 60))
+end
+
+task.spawn(function()
+    while screen.Parent do
+        if not seeking then
+            local frac = state.dur > 0 and math.clamp(state.pos / state.dur, 0, 1) or 0
+            fill.Size = UDim2.new(frac, 0, 1, 0)
+        end
+        timeLbl.Text = fmtTime(state.pos) .. " / " .. fmtTime(state.dur)
+        task.wait(0.1)
+    end
+end)
+
+-- ---------- playback loop ----------
+task.spawn(function()
+    log("starting in " .. START_DELAY .. "s")
+    task.wait(START_DELAY)
+    log(string.format("playing, %.1fs", DUR))
+
+    local idx = 1
+    local last = os.clock()
+    while true do
+        if _G.TETOMIDI_STOP then
+            _G.TETOMIDI_STOP = false
+            if state.playing then
+                state.playing = false
+                releaseAll()
+                log("stopped")
+                setPlayText()
+            end
+        end
+
+        local now = os.clock()
+        if state.seek then
+            state.pos = math.clamp(tonumber(state.seek) or 0, 0, DUR)
+            state.seek = nil
+            releaseAll()
+            idx = 1
+            while idx <= #events and events[idx].t < state.pos do idx = idx + 1 end
+            state.finished = false
+            log(string.format("seek %.1fs", state.pos))
+        elseif state.playing and not state.finished then
+            state.pos = state.pos + (now - last) * state.rate
+        end
+        last = now
+
+        if state.playing and not state.finished then
+            while idx <= #events and events[idx].t <= state.pos do
+                pcall(events[idx].fn)
+                idx = idx + 1
+            end
+            if idx > #events then
+                state.finished = true
+                state.playing = false
+                state.pos = DUR
+                releaseAll()
+                log("finished")
+                setPlayText()
+            end
+        end
+        task.wait(0.02)
+    end
 end)
 `;
 
