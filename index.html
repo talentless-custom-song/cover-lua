@@ -517,6 +517,27 @@ task.spawn(function()
     end
 end)
 
+-- ---------- finish: hide the song UI, then show a short "finished" notice ----------
+local function finishUI()
+    local parent = screen.Parent
+    screen:Destroy()
+    local notify = Instance.new("ScreenGui")
+    notify.Name = "TetoMIDI_Notify"
+    notify.ResetOnSpawn = false
+    notify.IgnoreGuiInset = true
+    notify.DisplayOrder = 201
+    notify.Parent = parent
+    local toast = frame(notify, UDim2.new(0, 220, 0, 36), UDim2.new(0.5, -110, 1, -72), PANEL, 0.12, 18)
+    local st = Instance.new("UIStroke")
+    st.Color = WHITE
+    st.Transparency = 0.8
+    st.Thickness = 1
+    st.Parent = toast
+    text(toast, "song finished", UDim2.new(1, -16, 1, 0), UDim2.new(0, 8, 0, 0), Enum.Font.GothamMedium, 12, WHITE, Enum.TextXAlignment.Center)
+    task.wait(3)
+    notify:Destroy()
+end
+
 -- ---------- playback loop ----------
 task.spawn(function()
     log("hotkeys: P pause, <- -5s, -> +5s, up/down speed")
@@ -561,8 +582,10 @@ task.spawn(function()
                 state.playing = false
                 state.pos = DUR
                 releaseAll()
-                playTxt.Text = ">"
+                _G.TETOMIDI_DONE = true
                 log("finished")
+                task.spawn(finishUI)
+                return
             end
         end
         task.wait(0.02)
