@@ -152,6 +152,88 @@
 const $ = id => document.getElementById(id);
 const state = { midi: null };
 
+// Player nhúng vào gist: chạy SONG bằng VirtualInputManager, dự phòng keypress()
+const PLAYER = `
+-- ===== PLAYER =====
+local START_DELAY = 3
+_G.TETOMIDI_STOP = false
+
+local KEY_ENUM = {["0"]="Zero",["1"]="One",["2"]="Two",["3"]="Three",["4"]="Four",["5"]="Five",["6"]="Six",["7"]="Seven",["8"]="Eight",["9"]="Nine",shift="LeftShift",ctrl="LeftControl",alt="LeftAlt",space="Space"}
+local KEY_VK = {shift=0x10, ctrl=0x11, alt=0x12, space=0x20}
+
+local VIM = nil
+pcall(function() VIM = game:GetService("VirtualInputManager") end)
+local hasKP = type(keypress) == "function" and type(keyrelease) == "function"
+
+local function keyCode(name)
+    local ok, code = pcall(function() return Enum.KeyCode[KEY_ENUM[name] or name:upper()] end)
+    if ok then return code end
+    return nil
+end
+
+local function vkOf(name)
+    if KEY_VK[name] then return KEY_VK[name] end
+    if #name == 1 then return name:upper():byte() end
+    return nil
+end
+
+local function send(name, down)
+    local code = keyCode(name)
+    if VIM and code then
+        if pcall(function() VIM:SendKeyEvent(down, code, false, game) end) then return end
+    end
+    local vk = vkOf(name)
+    if hasKP and vk then
+        if down then keypress(vk) else keyrelease(vk) end
+    end
+end
+
+-- Dựng danh sách sự kiện (thời điểm, hàm) từ SONG
+local events = {}
+local function add(t, fn)
+    events[#events + 1] = {t = t, fn = fn, i = #events + 1}
+end
+
+for _, e in ipairs(SONG) do
+    if e.sustain then
+        local down = (e.sustain == "down")
+        add(e.t, function() send("space", down) end)
+    else
+        local k, mod, vk = e.k, (e.m ~= "" and e.m or nil), e.vk
+        add(e.t, function()
+            if vk then
+                send("alt", true); send(vk, true); send(vk, false); send("alt", false)
+            end
+            if mod then send(mod, true) end
+            send(k, true)
+        end)
+        add(e.t + e.d, function()
+            send(k, false)
+            if mod then send(mod, false) end
+        end)
+    end
+end
+
+table.sort(events, function(a, b)
+    if a.t ~= b.t then return a.t < b.t end
+    return a.i < b.i
+end)
+
+task.wait(START_DELAY)
+local t0 = os.clock()
+for _, ev in ipairs(events) do
+    if _G.TETOMIDI_STOP then break end
+    local wait = ev.t - (os.clock() - t0)
+    if wait > 0 then task.wait(wait) end
+    pcall(ev.fn)
+end
+
+-- nhả hết phím phụ và pedal phòng khi dừng giữa chừng
+pcall(function()
+    send("space", false); send("shift", false); send("ctrl", false); send("alt", false)
+end)
+`;
+
 function readFlags() {
   return {
     k88: $("cb88").checked,
@@ -161,7 +243,6 @@ function readFlags() {
   };
 }
 
-const LOADER = 'loadstring(game:HttpGet("https://gist.githack.com/linhbellmapmap208-design/0aa4be45d0eb0a1e12cc8896c03ca0dc/raw/custom_song.lua", true))()';
 const SHORT_NOTE = 0.12;          // tetoMIDI rollmodel.SHORT_NOTE (seconds) when note length is off
 const SUSTAIN_CUTOFF = 63;        // tetoMIDI piano.sustainCutoff
 const SHIFTED = /[!@$%^*(]/;      // symbols that need Shift (tetoMIDI dispatchers._SHIFTED_SYMBOLS)
@@ -496,7 +577,7 @@ function convert() {
   }
   L.push("}");
   L.push("");
-  L.push(LOADER);
+  L.push(PLAYER);
   setStatus(`converted: ${song.length} entries${dropped ? `, ${dropped} notes outside the keymap were dropped` : ""}`);
   return L.join("\n");
 }
