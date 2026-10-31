@@ -154,8 +154,9 @@ const state = { midi: null };
 
 // Player nhúng vào gist: chạy SONG bằng VirtualInputManager, dự phòng keypress()
 const PLAYER = `
--- ===== PLAYER + OWN UI =====
--- This script draws its own UI. It is independent of the tetoMIDI main UI.
+-- ===== PLAYER + OWN UI (compact) =====
+-- Separate UI, independent of tetoMIDI main UI.
+-- Hotkeys: P = pause/play, Left/Right = -5s/+5s, Up/Down = speed +/-0.05
 local START_DELAY = 3
 local SONG_NAME = "custom song"
 local UIS = game:GetService("UserInputService")
@@ -163,7 +164,7 @@ local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
 
 _G.TETOMIDI_STOP = false
-local state = {playing = true, finished = false, rate = 1, seek = nil, pos = 0, dur = 0}
+local state = {playing = true, finished = false, rate = 1, seek = nil, pos = 0, dur = 0, showConsole = false, showKeys = false}
 
 -- ---------- key sending (VirtualInputManager, fallback keypress) ----------
 local KEY_ENUM = {["0"]="Zero",["1"]="One",["2"]="Two",["3"]="Three",["4"]="Four",["5"]="Five",["6"]="Six",["7"]="Seven",["8"]="Eight",["9"]="Nine",shift="LeftShift",ctrl="LeftControl",alt="LeftAlt",space="Space"}
@@ -202,6 +203,16 @@ local function releaseAll()
     end)
 end
 
+-- label of the key combo shown in the keys view, e.g. "sh+1", "ctrl+y", "alt+5 t"
+local function keyText(k, mod, vk)
+    local t = ""
+    if vk then t = "alt+" .. vk .. " " end
+    if mod == "shift" then t = t .. "sh+" elseif mod == "ctrl" then t = t .. "ctrl+" end
+    return t .. k
+end
+
+local pushKey = function() end   -- replaced once the UI exists
+
 -- ---------- event list from SONG ----------
 local events = {}
 local function add(t, fn)
@@ -214,12 +225,14 @@ for _, e in ipairs(SONG) do
         add(e.t, function() send("space", down) end)
     else
         local k, mod, vk = e.k, (e.m ~= "" and e.m or nil), e.vk
+        local txt = keyText(k, mod, vk)
         add(e.t, function()
             if vk then
                 send("alt", true); send(vk, true); send(vk, false); send("alt", false)
             end
             if mod then send(mod, true) end
             send(k, true)
+            pushKey(txt)
         end)
         add(e.t + e.d, function()
             send(k, false)
@@ -238,7 +251,8 @@ state.dur = DUR
 
 -- ---------- UI helpers ----------
 local WHITE = Color3.fromRGB(255, 255, 255)
-local MUTED = Color3.fromRGB(190, 190, 190)
+local MUTED = Color3.fromRGB(165, 165, 172)
+local PANEL = Color3.fromRGB(22, 22, 26)
 
 local function corner(obj, r)
     local c = Instance.new("UICorner")
@@ -247,55 +261,46 @@ local function corner(obj, r)
     return c
 end
 
-local function glass(parent, size, pos, radius, alpha)
+local function frame(parent, size, pos, color, alpha, radius)
     local f = Instance.new("Frame")
     f.Size = size
     f.Position = pos
-    f.BackgroundColor3 = Color3.fromRGB(235, 240, 255)
-    f.BackgroundTransparency = alpha or 0.84
+    f.BackgroundColor3 = color or PANEL
+    f.BackgroundTransparency = alpha or 0
     f.BorderSizePixel = 0
     f.Parent = parent
-    corner(f, radius)
-    local st = Instance.new("UIStroke")
-    st.Color = WHITE
-    st.Thickness = 1.2
-    st.Transparency = 0.55
-    st.Parent = f
-    local g = Instance.new("UIGradient")
-    g.Rotation = 90
-    g.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(1, 0.7)})
-    g.Parent = f
+    if radius then corner(f, radius) end
     return f
 end
 
-local function label(parent, text, size, pos, font, textSize, color, align)
+local function text(parent, str, size, pos, font, tsize, color, align)
     local l = Instance.new("TextLabel")
     l.Size = size
     l.Position = pos
     l.BackgroundTransparency = 1
-    l.Text = text
+    l.Text = str
     l.TextColor3 = color or WHITE
     l.Font = font or Enum.Font.GothamMedium
-    l.TextSize = textSize or 12
+    l.TextSize = tsize or 11
     l.TextXAlignment = align or Enum.TextXAlignment.Left
     l.TextTruncate = Enum.TextTruncate.AtEnd
     l.Parent = parent
     return l
 end
 
-local function button(parent, text, size, pos, onClick)
-    local holder = glass(parent, size, pos, 10, 0.8)
+local function btn(parent, str, size, pos, onClick, filled, radius)
+    local holder = frame(parent, size, pos, filled and WHITE or WHITE, filled and 0 or 0.88, radius or 10)
     local b = Instance.new("TextButton")
     b.Size = UDim2.new(1, 0, 1, 0)
     b.BackgroundTransparency = 1
-    b.Text = text
-    b.TextColor3 = WHITE
-    b.Font = Enum.Font.GothamMedium
+    b.Text = str
+    b.TextColor3 = filled and Color3.fromRGB(0, 0, 0) or WHITE
+    b.Font = Enum.Font.GothamBold
     b.TextSize = 12
     b.AutoButtonColor = false
     b.Parent = holder
     b.MouseButton1Click:Connect(onClick)
-    return holder
+    return holder, b
 end
 
 -- ---------- own UI (separate ScreenGui) ----------
@@ -308,43 +313,54 @@ if not pcall(function() screen.Parent = CoreGui end) or not screen.Parent then
     screen.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 end
 
-local panel = glass(screen, UDim2.new(0, 300, 0, 280), UDim2.new(1, -16, 0, 16), 18, 0.8)
+local panel = frame(screen, UDim2.new(0, 260, 0, 150), UDim2.new(1, -12, 0, 12), PANEL, 0.16, 18)
 panel.AnchorPoint = Vector2.new(1, 0)
+local panelStroke = Instance.new("UIStroke")
+panelStroke.Color = WHITE
+panelStroke.Transparency = 0.85
+panelStroke.Thickness = 1
+panelStroke.Parent = panel
 
 local reopen
-reopen = button(screen, "show ui", UDim2.new(0, 84, 0, 28), UDim2.new(1, -16, 0, 16), function()
+reopen = btn(screen, "tetoMIDI", UDim2.new(0, 80, 0, 26), UDim2.new(1, -12, 0, 12), function()
     panel.Visible = true
     reopen.Visible = false
-end)
+end, false, 13)
 reopen.AnchorPoint = Vector2.new(1, 0)
 reopen.Visible = false
 
-label(panel, SONG_NAME, UDim2.new(1, -56, 0, 22), UDim2.new(0, 14, 0, 10), Enum.Font.GothamBold, 14, WHITE)
-button(panel, "x", UDim2.new(0, 28, 0, 26), UDim2.new(1, -42, 0, 8), function()
+text(panel, SONG_NAME, UDim2.new(1, -150, 0, 18), UDim2.new(0, 14, 0, 8), Enum.Font.GothamBold, 12)
+
+local consoleFrame, keysFrame, keysLbl
+local function relayout()
+    local h = 150 + (state.showConsole and 96 or 0) + (state.showKeys and 34 or 0)
+    panel.Size = UDim2.new(0, 260, 0, h)
+    consoleFrame.Visible = state.showConsole
+    keysFrame.Visible = state.showKeys
+    keysFrame.Position = UDim2.new(0, 14, 0, 150 + (state.showConsole and 96 or 0))
+end
+
+btn(panel, "x", UDim2.new(0, 22, 0, 20), UDim2.new(1, -30, 0, 8), function()
     panel.Visible = false
     reopen.Visible = true
-end)
+end, false, 6)
+btn(panel, "log", UDim2.new(0, 46, 0, 20), UDim2.new(1, -82, 0, 8), function()
+    state.showConsole = not state.showConsole
+    relayout()
+end, false, 6)
+btn(panel, "keys", UDim2.new(0, 46, 0, 20), UDim2.new(1, -134, 0, 8), function()
+    state.showKeys = not state.showKeys
+    relayout()
+end, false, 6)
 
 -- progress bar: click or drag to seek
-local track = Instance.new("Frame")
-track.Size = UDim2.new(1, -28, 0, 6)
-track.Position = UDim2.new(0, 14, 0, 44)
-track.BackgroundColor3 = WHITE
-track.BackgroundTransparency = 0.8
-track.BorderSizePixel = 0
-track.Parent = panel
-corner(track, 3)
-
-local fill = Instance.new("Frame")
-fill.Size = UDim2.new(0, 0, 1, 0)
-fill.BackgroundColor3 = WHITE
-fill.BorderSizePixel = 0
-fill.Parent = track
-corner(fill, 3)
+local track = frame(panel, UDim2.new(1, -28, 0, 4), UDim2.new(0, 14, 0, 42), WHITE, 0.8, 2)
+local fill = frame(track, UDim2.new(0, 0, 1, 0), UDim2.new(0, 0, 0, 0), WHITE, 0, 2)
+local knob = frame(track, UDim2.new(0, 10, 0, 10), UDim2.new(0, -5, 0.5, -5), WHITE, 0, 5)
 
 local hit = Instance.new("TextButton")
-hit.Size = UDim2.new(1, 0, 0, 24)
-hit.Position = UDim2.new(0, 0, 0, -9)
+hit.Size = UDim2.new(1, 0, 0, 20)
+hit.Position = UDim2.new(0, 0, 0, -8)
 hit.BackgroundTransparency = 1
 hit.Text = ""
 hit.Parent = track
@@ -354,6 +370,7 @@ local function seekFromX(x)
     local frac = math.clamp((x - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X), 0, 1)
     if state.dur > 0 then state.seek = frac * state.dur end
     fill.Size = UDim2.new(frac, 0, 1, 0)
+    knob.Position = UDim2.new(frac, -5, 0.5, -5)
 end
 hit.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -372,105 +389,137 @@ UIS.InputEnded:Connect(function(input)
     end
 end)
 
-local timeLbl = label(panel, "0:00 / 0:00", UDim2.new(1, -28, 0, 16), UDim2.new(0, 14, 0, 54), Enum.Font.Gotham, 11, MUTED)
+local curLbl = text(panel, "0:00", UDim2.new(0.5, -14, 0, 14), UDim2.new(0, 14, 0, 52), Enum.Font.Gotham, 10, MUTED)
+local totLbl = text(panel, "0:00", UDim2.new(0.5, -14, 0, 14), UDim2.new(0.5, 0, 0, 52), Enum.Font.Gotham, 10, MUTED, Enum.TextXAlignment.Right)
 
--- tempo: -/+ step 0.05, range 0.25x to 3x
-local rateLbl = label(panel, "1.00x", UDim2.new(0, 90, 0, 26), UDim2.new(0.5, -45, 0, 78), Enum.Font.GothamBold, 13, WHITE, Enum.TextXAlignment.Center)
-
-local function setRate(r)
-    r = math.clamp(math.floor(r * 20 + 0.5) / 20, 0.25, 3)
-    state.rate = r
-    rateLbl.Text = string.format("%.2fx", r)
-end
-button(panel, "-", UDim2.new(0, 40, 0, 26), UDim2.new(0, 14, 0, 78), function() setRate(state.rate - 0.05) end)
-button(panel, "+", UDim2.new(0, 40, 0, 26), UDim2.new(1, -54, 0, 78), function() setRate(state.rate + 0.05) end)
-
--- console
-local console = Instance.new("ScrollingFrame")
-console.Name = "Console"
-console.Size = UDim2.new(1, -28, 1, -158)
-console.Position = UDim2.new(0, 14, 0, 150)
-console.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-console.BackgroundTransparency = 0.5
-console.BorderSizePixel = 0
-console.ScrollBarThickness = 3
-console.AutomaticCanvasSize = Enum.AutomaticSize.Y
-console.CanvasSize = UDim2.new(0, 0, 0, 0)
-console.Parent = panel
-corner(console, 10)
-
-local consoleLayout = Instance.new("UIListLayout")
-consoleLayout.SortOrder = Enum.SortOrder.LayoutOrder
-consoleLayout.Parent = console
-
-local logCount = 0
-local function log(msg)
-    logCount = logCount + 1
-    local l = Instance.new("TextLabel")
-    l.Size = UDim2.new(1, -10, 0, 0)
-    l.AutomaticSize = Enum.AutomaticSize.Y
-    l.BackgroundTransparency = 1
-    l.Text = "> " .. tostring(msg)
-    l.TextColor3 = Color3.fromRGB(220, 220, 220)
-    l.Font = Enum.Font.Code
-    l.TextSize = 11
-    l.TextWrapped = true
-    l.TextXAlignment = Enum.TextXAlignment.Left
-    l.LayoutOrder = logCount
-    l.Parent = console
-    if logCount > 80 then
-        for _, child in ipairs(console:GetChildren()) do
-            if child:IsA("TextLabel") and child.LayoutOrder <= logCount - 80 then child:Destroy() end
-        end
-    end
-    task.defer(function()
-        console.CanvasPosition = Vector2.new(0, math.max(0, console.AbsoluteCanvasSize.Y))
-    end)
+local function fmtTime(sec)
+    return string.format("%d:%02d", math.floor(sec / 60), math.floor(sec % 60))
 end
 
--- stop = pause (keeps position), play = resume (from start if finished)
-local playBtn
-local function setPlayText()
-    if playBtn then playBtn:FindFirstChildOfClass("TextButton").Text = state.playing and "stop" or "play" end
+local function seekBy(d)
+    state.seek = math.clamp(state.pos + d, 0, DUR)
 end
 
-playBtn = button(panel, "stop", UDim2.new(0.5, -21, 0, 28), UDim2.new(0, 14, 0, 112), function()
+-- controls: restart | -5s | play/pause | +5s
+local playHolder, playTxt
+local function togglePlay()
     if state.playing then
         state.playing = false
         releaseAll()
-        log("stopped")
+        log("paused")
     else
         if state.finished then
             state.seek = 0
             state.finished = false
         end
         state.playing = true
-        log("playing")
     end
-    setPlayText()
-end)
-button(panel, "to start", UDim2.new(0.5, -21, 0, 28), UDim2.new(0.5, 7, 0, 112), function()
-    state.seek = 0
-    log("to start")
-end)
-
-local function fmtTime(sec)
-    return string.format("%d:%02d", math.floor(sec / 60), math.floor(sec % 60))
+    playTxt.Text = state.playing and "||" or ">"
 end
+playHolder, playTxt = btn(panel, "||", UDim2.new(0, 44, 0, 44), UDim2.new(0.5, -22, 0, 70), function() togglePlay() end, true, 999)
+btn(panel, "|<", UDim2.new(0, 36, 0, 30), UDim2.new(0, 14, 0, 77), function() state.seek = 0 end, false, 15)
+btn(panel, "-5s", UDim2.new(0, 42, 0, 30), UDim2.new(0.5, -82, 0, 77), function() seekBy(-5) end, false, 15)
+btn(panel, "+5s", UDim2.new(0, 42, 0, 30), UDim2.new(0.5, 40, 0, 77), function() seekBy(5) end, false, 15)
+
+-- tempo: step 0.05, range 0.25x to 3x
+local rateLbl = text(panel, "1.00x", UDim2.new(0, 80, 0, 26), UDim2.new(0.5, -40, 0, 118), Enum.Font.GothamBold, 11, WHITE, Enum.TextXAlignment.Center)
+local function setRate(r)
+    r = math.clamp(math.floor(r * 20 + 0.5) / 20, 0.25, 3)
+    state.rate = r
+    rateLbl.Text = string.format("%.2fx", r)
+end
+btn(panel, "-", UDim2.new(0, 30, 0, 26), UDim2.new(0, 14, 0, 118), function() setRate(state.rate - 0.05) end, false, 8)
+btn(panel, "+", UDim2.new(0, 30, 0, 26), UDim2.new(1, -44, 0, 118), function() setRate(state.rate + 0.05) end, false, 8)
+
+-- console (toggle with "log")
+consoleFrame = Instance.new("ScrollingFrame")
+consoleFrame.Name = "Console"
+consoleFrame.Size = UDim2.new(1, -28, 0, 88)
+consoleFrame.Position = UDim2.new(0, 14, 0, 150)
+consoleFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+consoleFrame.BackgroundTransparency = 0.4
+consoleFrame.BorderSizePixel = 0
+consoleFrame.ScrollBarThickness = 2
+consoleFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+consoleFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+consoleFrame.Visible = false
+consoleFrame.Parent = panel
+corner(consoleFrame, 8)
+
+local consoleLayout = Instance.new("UIListLayout")
+consoleLayout.SortOrder = Enum.SortOrder.LayoutOrder
+consoleLayout.Parent = consoleFrame
+
+local logCount = 0
+function log(msg)
+    logCount = logCount + 1
+    local l = Instance.new("TextLabel")
+    l.Size = UDim2.new(1, -8, 0, 0)
+    l.AutomaticSize = Enum.AutomaticSize.Y
+    l.BackgroundTransparency = 1
+    l.Text = "> " .. tostring(msg)
+    l.TextColor3 = Color3.fromRGB(215, 215, 220)
+    l.Font = Enum.Font.Code
+    l.TextSize = 10
+    l.TextWrapped = true
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.LayoutOrder = logCount
+    l.Parent = consoleFrame
+    if logCount > 60 then
+        for _, child in ipairs(consoleFrame:GetChildren()) do
+            if child:IsA("TextLabel") and child.LayoutOrder <= logCount - 60 then child:Destroy() end
+        end
+    end
+    task.defer(function()
+        consoleFrame.CanvasPosition = Vector2.new(0, math.max(0, consoleFrame.AbsoluteCanvasSize.Y))
+    end)
+end
+
+-- keys view (toggle with "keys"): the last keys played
+keysFrame = frame(panel, UDim2.new(1, -28, 0, 30), UDim2.new(0, 14, 0, 150), Color3.fromRGB(0, 0, 0), 0.4, 8)
+keysFrame.Visible = false
+keysLbl = text(keysFrame, "keys appear here while playing", UDim2.new(1, -12, 1, 0), UDim2.new(0, 6, 0, 0), Enum.Font.Code, 10, MUTED)
+keysLbl.TextWrapped = true
+
+local keyHistory = {}
+pushKey = function(txt)
+    keyHistory[#keyHistory + 1] = txt
+    while #keyHistory > 8 do table.remove(keyHistory, 1) end
+    keysLbl.Text = table.concat(keyHistory, "   ")
+end
+
+-- hotkeys
+UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.P then
+        togglePlay()
+    elseif input.KeyCode == Enum.KeyCode.Left then
+        seekBy(-5)
+    elseif input.KeyCode == Enum.KeyCode.Right then
+        seekBy(5)
+    elseif input.KeyCode == Enum.KeyCode.Up then
+        setRate(state.rate + 0.05)
+    elseif input.KeyCode == Enum.KeyCode.Down then
+        setRate(state.rate - 0.05)
+    end
+end)
 
 task.spawn(function()
     while screen.Parent do
         if not seeking then
             local frac = state.dur > 0 and math.clamp(state.pos / state.dur, 0, 1) or 0
             fill.Size = UDim2.new(frac, 0, 1, 0)
+            knob.Position = UDim2.new(frac, -5, 0.5, -5)
         end
-        timeLbl.Text = fmtTime(state.pos) .. " / " .. fmtTime(state.dur)
+        curLbl.Text = fmtTime(state.pos)
+        totLbl.Text = fmtTime(state.dur)
         task.wait(0.1)
     end
 end)
 
 -- ---------- playback loop ----------
 task.spawn(function()
+    log("hotkeys: P pause, <- -5s, -> +5s, up/down speed")
     log("starting in " .. START_DELAY .. "s")
     task.wait(START_DELAY)
     log(string.format("playing, %.1fs", DUR))
@@ -483,8 +532,8 @@ task.spawn(function()
             if state.playing then
                 state.playing = false
                 releaseAll()
+                playTxt.Text = ">"
                 log("stopped")
-                setPlayText()
             end
         end
 
@@ -512,8 +561,8 @@ task.spawn(function()
                 state.playing = false
                 state.pos = DUR
                 releaseAll()
+                playTxt.Text = ">"
                 log("finished")
-                setPlayText()
             end
         end
         task.wait(0.02)
